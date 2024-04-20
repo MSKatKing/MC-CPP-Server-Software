@@ -1,3 +1,0 @@
-/mnt/c/Users/wait4/source/repos/MCPPServerSoftware/CMakeFiles/MCPPServer.dir
-/mnt/c/Users/wait4/source/repos/MCPPServerSoftware/CMakeFiles/edit_cache.dir
-/mnt/c/Users/wait4/source/repos/MCPPServerSoftware/CMakeFiles/rebuild_cache.dir
