@@ -158,8 +158,6 @@ void MinecraftServer::start() {
 
     consoleThread = std::thread(&MinecraftServer::inputThreadFunction, this);
 
-    clientPool = new ThreadPool(25);
-
     constexpr std::chrono::milliseconds targetTickDuration(50);
 
     logger.info("Timings started!");
@@ -259,8 +257,8 @@ void MinecraftServer::inputThreadFunction() {
     }
 }
 
-const Logger* MinecraftServer::getLogger() const {
-    return &logger;
+const Logger& MinecraftServer::getLogger() const {
+    return logger;
 }
 
 JSON MinecraftServer::generateMOTD() const {
@@ -280,7 +278,6 @@ JSON MinecraftServer::generateMOTD() const {
     return output;
 }
 
-MinecraftServer& MinecraftServer::get() {
-    return instance;
+bool MinecraftServer::isOnline() const {
+    return onlineMode;
 }
-

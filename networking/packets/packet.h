@@ -22,10 +22,18 @@ struct Packet {
     Packet(char* data);
 
     template <typename T>
-    T readNumber();
+    T readNumber() {
+        T value;
+        std::memcpy(&value, &buffer[cursor], sizeof(T));
+        cursor += sizeof(T);
+        return value;
+    }
 
     template <typename T>
-    void writeNumber(T value);
+    void writeNumber(T value) {
+        std::memcpy(&buffer[cursor], &value, sizeof(T));
+        cursor += sizeof(T);
+    }
 
     void WriteString(const std::string& value);
 
@@ -51,7 +59,7 @@ struct Packet {
         for(int i = 0; i < p.GetSize(); i++) {
             std::stringstream num;
             num << std::setw(4) << std::setfill('0') << i;
-            os << "@" << num.str() << " -> " << (int) p.GetBuffer()[i] << "\t(" << p.GetBuffer()[i] << ")" << std::endl;
+            os << "@" << num.str() << " -> " << (int) p.Sendable()[i] << "\t(" << p.Sendable()[i] << ")" << std::endl;
         }
         return os;
     }

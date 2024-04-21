@@ -16,6 +16,12 @@
 #include <arpa/inet.h>
 #endif
 
+class Player;
+
+using HandlerPointer = void(Player::*)(Packet&);
+
+class MinecraftServer;
+
 enum ClientState {
     HANDSHAKE,
     STATUS,
@@ -37,6 +43,9 @@ private:
     ClientState state;
     bool connected;
 
+    long lastKeepAlive = -1;
+    int ticksSinceLastKeepAlive = 0;
+
     void sendPacket(const Packet& final);
     Packet recievePacket();
 
@@ -48,7 +57,7 @@ public:
         formatSocket();
     }
 #else
-    explicit Player(int socket) : socket(socket), state(HANDSHAKE), playerUUID(INVALID_UUID) {}
+    explicit Player(int socket) : socket(socket), state(HANDSHAKE), playerUUID(INVALID_UUID), connected(true) {}
 #endif
 
     ~Player();
@@ -91,7 +100,8 @@ public:
     void kick(TextComponent reason);
     void pluginMessage(Identifier id, const char* data);
     void handlePluginMessage(Packet& in);
-    void handleKeepAlive();
+    void sendKeepAlive();
+    void handleKeepAlive(Packet& in);
     void sendPingResponse(long payload);
     void handlePingRequest(Packet& in);
     void handlePong(Packet& in);
@@ -108,7 +118,7 @@ public:
     // Login packets
     void sendEncryptionRequest();
     void sendLoginSuccess();
-    void sendSetCompression(int compressAmount);
+    void sendSetCompression();
     void sendPluginRequest();
     
     void handleLoginStart(Packet& in);
@@ -247,33 +257,7 @@ public:
     void sendUpdateRecipes();
     //void sendUpdateTags();
 
-private:
-    static const std::unordered_map<ClientState, std::unordered_map<char, std::function<void(Packet&)>>> packetHandlers{
-        {HANDSHAKE, {
-            {0x00, handleHandshake}
-        }},
-        {STATUS, {
-            {0x00, handleStatusRequest},
-            {0x01, handlePingRequest}
-        }},
-        {LOGIN, {
-            {0x00, handleLoginStart},
-            {0x01, handleEncryptionResponse},
-            {0x02, handlePluginResponse},
-            {0x03, handleLoginAcknowledged}
-        }},
-        {CONFIGURATION, {
-            {0x00, handleInformation},
-            {0x01, handlePluginMessage},
-            {0x02, handleAcknowledgeConfigFinish},
-            {0x03, handleKeepAlive},
-            {0x04, handlePong},
-            {0x05, handleResourcePackResponse}
-        }},
-        {PLAY, {
-
-        }}
-    };
+    static const std::unordered_map<ClientState, std::unordered_map<char, HandlerPointer>> packetHandlers;
 };
 
 

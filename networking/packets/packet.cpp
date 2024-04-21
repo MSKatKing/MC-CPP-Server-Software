@@ -17,20 +17,6 @@ Packet::Packet(char* data) {
     cursor = 0;
 }
 
-template <typename T>
-T Packet::readNumber() {
-    T value;
-    std::memcpy(&value, &buffer[cursor], sizeof(T));
-    cursor += sizeof(T);
-    return value;
-}
-
-template <typename T>
-void Packet::writeNumber(T value) {
-    std::memcpy(&buffer[cursor], &value, sizeof(T));
-    cursor += sizeof(T);
-}
-
 void Packet::WriteString(const std::string& value) {
     WriteVarInt(value.length());
     memcpy(&buffer[cursor], value.c_str(), value.length());

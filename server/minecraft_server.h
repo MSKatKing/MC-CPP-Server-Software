@@ -16,18 +16,22 @@
 #include "../io/logger.h"
 #include "../io/configs.h"
 
-#define VERSION_NAME "1.20.4";
-#define VERSION_ID 765;
+#define VERSION_NAME "1.20.4"
+#define VERSION_ID 765
 
 class MinecraftServer {
 public:
     void start();
     void stop();
 
-    const Logger* getLogger() const;
+    const Logger& getLogger() const;
     JSON generateMOTD() const;
+    bool isOnline() const;
 
-    static MinecraftServer& get();
+    static MinecraftServer& get() {
+        static MinecraftServer instance;
+        return instance;
+    }
 
     MinecraftServer(const MinecraftServer&) = delete;
 

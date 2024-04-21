@@ -1,4 +1,4 @@
-# Install script for directory: /mnt/c/Users/wait4/source/repos/MCPPServerSoftware
+# Install script for directory: /mnt/d/C++ Development/MCPPServerSoftware
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
@@ -50,5 +50,5 @@ endif()
 
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
        "${CMAKE_INSTALL_MANIFEST_FILES}")
-file(WRITE "/mnt/c/Users/wait4/source/repos/MCPPServerSoftware/${CMAKE_INSTALL_MANIFEST}"
+file(WRITE "/mnt/d/C++ Development/MCPPServerSoftware/${CMAKE_INSTALL_MANIFEST}"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")
