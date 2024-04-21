@@ -41,6 +41,10 @@ namespace Configurations {
             }
         }
 
+        std::unordered_map<std::string, std::string>& getMap() {
+            return config;
+        }
+
         void save() {
             if(std::ofstream file(path); file) {
                 for(const auto& pair : config) {

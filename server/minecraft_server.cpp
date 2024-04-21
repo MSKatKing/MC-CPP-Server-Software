@@ -53,6 +53,11 @@ MinecraftServer::MinecraftServer() : running(true), ticks(0), logger("THREAD-MAI
 
     loadConfig();
 
+    commands.push_back(new Commands::StopCommand());
+    commands.push_back(new Commands::ReloadCommand());
+    commands.push_back(new Commands::HelpCommand());
+    commands.push_back(new Commands::KickCommand());
+
 #ifdef WIN32
     WSAData wsData{};
     WORD ver = MAKEWORD(2, 2);
@@ -204,32 +209,37 @@ void MinecraftServer::stop() {
 void MinecraftServer::tick() {
     // Gather any console input
     if(const std::string consoleInput = checkConsoleCommand(); !consoleInput.empty()) {
-        if(consoleInput == "stop" || consoleInput == "s" || consoleInput == "quit") stop();
-        else if(consoleInput == "reload") {
-            logger.info("Reloading the config...");
-            loadConfig();
-            logger.info("Successfully reloaded the config!");
-        } else if(consoleInput == "help" || consoleInput == "?") {
-            logger.info("Command list:");
-            logger.info("stop:");
-            logger.info("   aliases: s, quit");
-            logger.info("   description: Stops the server");
-            logger.info("");
-            logger.info("help:");
-            logger.info("   aliases: ?");
-            logger.info("   description: shows this list");
-            logger.info("");
-            logger.info("reload:");
-            logger.info("   aliases: ?");
-            logger.info("   description: Reloads the server config");
+        size_t space = consoleInput.find(' ');
+
+        std::string name;
+        std::vector<std::string> args;
+
+        if (space != std::string::npos) {
+            name = consoleInput.substr(0, consoleInput.find(' '));
+            std::istringstream iss(consoleInput.substr(consoleInput.find(' ') + 1));
+            std::string arg;
+            while (iss >> arg)
+                args.push_back(arg);
+        } else {
+            name = consoleInput;
         }
-        else logger.info("Unknown command '" + consoleInput + "'! Type 'help' for a list of commands.");
+        bool executed = false;
+        for (Commands::Command* c : commands) {
+            if (c->compare(name)) {
+                if (!c->execute(args)) {
+                    logger.error("Error occured while executing command '" + name + "'!");
+                }
+                executed = true;
+                break;
+            }
+        }
+        if(!executed) logger.info("Unknown command '" + consoleInput + "'! Type 'help' for a list of commands.");
         command.clear();
     }
 
     players.erase(
         std::remove_if(players.begin(), players.end(), [](Player& p) {
-            return p.keepConnection();
+            return !p.keepConnection();
         }), players.end()
     );
     for (Player& p : players)

@@ -37,11 +37,11 @@ private:
 #else
     int socket;
 #endif
-    std::string playerName;
-    UUID playerUUID;
+    std::string playerName = "[unknown]";
+    UUID playerUUID = INVALID_UUID;
 
-    ClientState state;
-    bool connected;
+    ClientState state = HANDSHAKE;
+    bool connected = true;
 
     long lastKeepAlive = -1;
     int ticksSinceLastKeepAlive = 0;
@@ -53,11 +53,13 @@ private:
 
 public:
 #ifdef WIN32
-    explicit Player(SOCKET socket) : socket(socket), state(HANDSHAKE), playerUUID(INVALID_UUID), connected(true) {
+    explicit Player(SOCKET socket) : socket(socket) {
         formatSocket();
     }
 #else
-    explicit Player(int socket) : socket(socket), state(HANDSHAKE), playerUUID(INVALID_UUID), connected(true) {}
+    explicit Player(int socket) : socket(socket) {
+        formatSocket();
+    }
 #endif
 
     ~Player();

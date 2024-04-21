@@ -4,6 +4,7 @@
 #include <thread>
 #include <mutex>
 #include <vector>
+#include <algorithm>
 #ifdef WIN32
 #include <winsock2.h>
 #pragma comment(lib, "ws2_32.lib")
@@ -15,6 +16,7 @@
 #include "client.h"
 #include "../io/logger.h"
 #include "../io/configs.h"
+#include "../minecraft/chat/commands.h"
 
 #define VERSION_NAME "1.20.4"
 #define VERSION_ID 765
@@ -33,6 +35,26 @@ public:
         return instance;
     }
 
+    void loadConfig();
+    Configurations::CFGConfiguration& getConfig() {
+        return config;
+    }
+
+    std::vector<Commands::Command*>& getCommandList() {
+        return commands;
+    }
+
+    Player* getPlayerByName(const std::string& name) {
+        for (Player& p : players) {
+            if (compareIgnoreCase(p.getName(), name)) return &p;
+        }
+        return nullptr;
+    }
+
+    std::vector<Player>& getOnlinePlayers() {
+        return players;
+    }
+
     MinecraftServer(const MinecraftServer&) = delete;
 
 private:
@@ -44,7 +66,15 @@ private:
     void tick();
 
     std::string checkConsoleCommand();
-    void loadConfig();
+
+    bool compareIgnoreCase(const std::string& str1, const std::string& str2) {
+        std::string upperStr1 = str1;
+        std::string upperStr2 = str2;
+        std::transform(upperStr1.begin(), upperStr1.end(), upperStr1.begin(), ::toupper);
+        std::transform(upperStr2.begin(), upperStr2.end(), upperStr2.begin(), ::toupper);
+
+        return upperStr1 == upperStr2;
+    }
 
     std::mutex mutex;
     std::condition_variable cv;
@@ -59,6 +89,7 @@ private:
     std::string command;
 
     std::vector<Player> players;
+    std::vector<Commands::Command*> commands;
 
     long long publicKey;
     long long privateKey;

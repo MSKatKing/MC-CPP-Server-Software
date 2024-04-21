@@ -22,7 +22,7 @@ void Logger::info(const std::string &message) const {
     moveCursorToStartOfLine();
     printTimestamp();
     printThreadName();
-    std::cout << "| INFO] " << message << std::endl;
+    std::cout << "| INFO] " << message << "\033[0m" << std::endl;
 }
 
 void Logger::warn(const std::string &message) const {

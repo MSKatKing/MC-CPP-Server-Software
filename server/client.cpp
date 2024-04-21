@@ -82,6 +82,7 @@ void Player::formatSocket() {
 }
 
 Player::~Player() {
+    MinecraftServer::get().getLogger().info("Client disconnected.");
 #ifdef WIN32
     closesocket(getSocket());
 #else
@@ -97,7 +98,19 @@ void Player::sendPacket(const Packet& in) {
 Packet Player::recievePacket() {
     char buffer[4096];
     const int bytesRecieved = recv(getSocket(), buffer, sizeof(buffer), 0);
-    if (bytesRecieved < 0) return Packet();
+    if (bytesRecieved < 0) {
+#ifdef WIN32
+        if (WSAGetLastError() == WSAECONNRESET) {
+#else
+        if (errno == ECONNRESET) {
+#endif
+            MinecraftServer::get().getLogger().info("Connection reset.");
+            connected = false;
+            return Packet();
+        } else {
+            return Packet();
+        }
+    }
     if (bytesRecieved == 0) {
         kick({ "Invalid packet data recieved!" });
     }
@@ -107,6 +120,7 @@ Packet Player::recievePacket() {
 }
 
 void Player::tick() {
+    if (!connected) return;
     Packet p = recievePacket();
     if (p.GetSize() > 0) {
         int length = p.ReadVarInt();
@@ -120,17 +134,20 @@ void Player::tick() {
         }
     }
     
-    ticksSinceLastKeepAlive++;
-    if (lastKeepAlive != 0) {
-        if (ticksSinceLastKeepAlive > 300) // TODO: replace constant with config variable
-            kick({"Timed out"});
-    } else {
-        if (ticksSinceLastKeepAlive > 200)
-            sendKeepAlive();
+    if (state != HANDSHAKE && state != STATUS) {
+        ticksSinceLastKeepAlive++;
+        if (lastKeepAlive != 0) {
+            if (ticksSinceLastKeepAlive > 300) // TODO: replace constant with config variable
+                kick({"Timed out"});
+        } else {
+            if (ticksSinceLastKeepAlive > 200)
+                sendKeepAlive();
+        }
     }
 }
 
 void Player::kick(TextComponent reason) {
+    connected = false;
     Packet out;
     switch (state) {
         case CONFIGURATION: {
@@ -144,12 +161,11 @@ void Player::kick(TextComponent reason) {
             out.writeNumber<char>(0x1A);
             break;
         default:
-            connected = false;
             return;
     }
+    MinecraftServer::get().getLogger().info("Disconnecting player " + playerName + " for reason: " + reason.asPlainText());
     out.WriteString(reason.asString());
     sendPacket(out);
-    connected = false;
 }
 
 void Player::sendKeepAlive() {
