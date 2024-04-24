@@ -6,6 +6,7 @@
 #define JSON_H
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 
 class JSON {
@@ -26,6 +27,14 @@ public:
 
     void writeJson(const std::string& key, const JSON& json) {
         data[key] = json.asString();
+    }
+
+    void writeJsonList(const std::string& key, const std::vector<JSON>& d) {
+        std::string value = "[";
+        for (JSON j : d) value += j.asString() + ",";
+        value.pop_back();
+        value += "]";
+        data[key] = value;
     }
 
     const std::string asString() const {

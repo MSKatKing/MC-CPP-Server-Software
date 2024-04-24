@@ -18,8 +18,21 @@
 #include "../io/configs.h"
 #include "../minecraft/chat/commands.h"
 
+#include <openssl/rsa.h>
+#include <openssl/pem.h>
+#include <openssl/asn1.h>
+#include <openssl/evp.h>
+
 #define VERSION_NAME "1.20.4"
 #define VERSION_ID 765
+
+struct KeyPair {
+    unsigned char* publicKey;
+    int publicLen;
+
+    unsigned char* privateKey;
+    int privateLen;
+};
 
 class MinecraftServer {
 public:
@@ -43,19 +56,31 @@ public:
     std::vector<Commands::Command*>& getCommandList() {
         return commands;
     }
-
+    
     Player* getPlayerByName(const std::string& name) {
-        for (Player& p : players) {
-            if (compareIgnoreCase(p.getName(), name)) return &p;
+        for (Player* p : players) {
+            if (compareIgnoreCase(p->getName(), name)) return p;
         }
         return nullptr;
     }
 
-    std::vector<Player>& getOnlinePlayers() {
+    std::vector<Player*>& getOnlinePlayers() {
         return players;
     }
 
+    std::string& getMOTDMessage() {
+        return motd;
+    }
+
+    int getMaxPlayers() {
+        return maxPlayers;
+    }
+
     MinecraftServer(const MinecraftServer&) = delete;
+
+    KeyPair getKeys() {
+        return keys;
+    }
 
 private:
     MinecraftServer();
@@ -66,6 +91,8 @@ private:
     void tick();
 
     std::string checkConsoleCommand();
+
+    KeyPair keys;
 
     bool compareIgnoreCase(const std::string& str1, const std::string& str2) {
         std::string upperStr1 = str1;
@@ -88,7 +115,7 @@ private:
     std::condition_variable consoleCV;
     std::string command;
 
-    std::vector<Player> players;
+    std::vector<Player*> players;
     std::vector<Commands::Command*> commands;
 
     long long publicKey;
@@ -101,6 +128,7 @@ private:
     Configurations::CFGConfiguration config;
 
     short port;
+    bool localhost;
     int maxPlayers;
     bool onlineMode;
     bool enforcesSecureChat;

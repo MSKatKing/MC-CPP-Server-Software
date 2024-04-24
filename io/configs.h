@@ -45,6 +45,10 @@ namespace Configurations {
             return config;
         }
 
+        void set(const std::string& key, const std::string& value) {
+            config[key] = value;
+        }
+
         void save() {
             if(std::ofstream file(path); file) {
                 for(const auto& pair : config) {

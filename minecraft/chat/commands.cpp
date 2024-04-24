@@ -39,9 +39,14 @@ bool Commands::ReloadCommand::execute(const std::vector<std::string>& args) {
 		std::unordered_map<std::string, std::string> conf = MinecraftServer::get().getConfig().getMap();
 		auto iter = conf.find(args[1]);
 		if (iter != conf.end()) {
-			conf[args[1]] = conf[args[2]];
-			logger.info("Successfully set the config value '" + args[1] + "' to '" + args[2] + "'!");
+			std::string newVal;
+			for (int i = 2; i < args.size(); i++)
+				newVal += args[i] + " ";
+			newVal.pop_back();
+			MinecraftServer::get().getConfig().set(args[1], newVal);
 			MinecraftServer::get().getConfig().save();
+			MinecraftServer::get().loadConfig();
+			logger.info("Successfully set the config value '" + args[1] + "' to '" + newVal + "'!");
 		} else {
 			logger.info(RED "Value '" + args[1] + "' doesn't exist in the config!");
 		}
@@ -92,8 +97,8 @@ bool Commands::KickCommand::execute(const std::vector<std::string>& args) {
 	}
 
 	if (player == "*") {
-		for (Player& p : MinecraftServer::get().getOnlinePlayers())
-			p.kick({reason});
+		for (Player* p : MinecraftServer::get().getOnlinePlayers())
+			p->kick({reason});
 
 		logger.info("Kicked all players for reason: '" + reason + "'!");
 		return true;

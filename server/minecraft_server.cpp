@@ -9,6 +9,7 @@
 #include <thread>
 #include <valarray>
 #include <algorithm>
+#include <utility>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -38,6 +39,7 @@ void MinecraftServer::loadConfig() {
     config.reload();
 
     port = std::stoi(config.get("port", "25565"));
+    localhost = stob(config.get("localhost", "false"));
     onlineMode = stob(config.get("online-mode", "true"));
     maxPlayers = std::stoi(config.get("max-players", "20"));
     motd = config.get("motd", "A C++ Minecraft Server");
@@ -51,104 +53,121 @@ void MinecraftServer::loadConfig() {
 MinecraftServer::MinecraftServer() : running(true), ticks(0), logger("THREAD-MAIN"), config("server-config.cfg") {
     logger.info("Intitializing server...");
 
+    logger.info("Loading libraries...");
+
+    EVP_PKEY* pKey = EVP_PKEY_new();
+    RSA* rsa = RSA_generate_key(1024, RSA_F4, NULL, NULL);
+    EVP_PKEY_assign_RSA(pKey, rsa);
+
+    RSA* pubRSA = EVP_PKEY_get1_RSA(pKey);
+    unsigned char* publicKeyDER = NULL;
+    int publicKeyDERLength = i2d_RSA_PUBKEY(pubRSA, &publicKeyDER);
+
+    RSA* privRSA = EVP_PKEY_get1_RSA(pKey);
+    unsigned char* privateKeyDER = NULL;
+    int privateKeyDERLength = i2d_RSAPrivateKey(privRSA, &privateKeyDER);
+
+    keys.publicKey = new unsigned char[publicKeyDERLength];
+    std::copy(publicKeyDER, publicKeyDER + publicKeyDERLength, keys.publicKey);
+    keys.publicLen = publicKeyDERLength;
+
+    keys.privateKey = new unsigned char[privateKeyDERLength];
+    std::copy(privateKeyDER, privateKeyDER + privateKeyDERLength, keys.privateKey);
+    keys.privateLen = privateKeyDERLength;
+
+    for (int i = 0; i < publicKeyDERLength; ++i) {
+        std::cout << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(publicKeyDER[i]) << " ";
+    }
+    std::cout << "\n\n" << publicKeyDERLength << std::endl;
+
+    EVP_PKEY_free(pKey);
+    RSA_free(rsa);
+    OPENSSL_free(publicKeyDER);
+    OPENSSL_free(privateKeyDER);
+
     loadConfig();
 
     commands.push_back(new Commands::StopCommand());
     commands.push_back(new Commands::ReloadCommand());
     commands.push_back(new Commands::HelpCommand());
     commands.push_back(new Commands::KickCommand());
-
+    
 #ifdef WIN32
-    WSAData wsData{};
-    WORD ver = MAKEWORD(2, 2);
-    int wsOk = WSAStartup(ver, &wsData);
-    if(wsOk != 0) {
+    WSAData wsa;
+    int wsOk = WSAStartup(0x0202, &wsa);
+    if (wsOk != 0) {
         logger.error("Couldn't initialize Winsock! Cannot continue, quitting.");
         running = false;
         return;
     }
+#endif
 
     serverSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if(serverSocket == INVALID_SOCKET) {
+    if(serverSocket < 0) {
         logger.error("Can't create socket! Cannot continue, quitting.");
         running = false;
+#ifdef WIN32
         WSACleanup();
+#endif
         return;
     }
 
     sockaddr_in hint{};
+    memset(&hint, 0, sizeof(hint));
     hint.sin_family = AF_INET;
     hint.sin_port = htons(port);
     hint.sin_addr.s_addr = INADDR_ANY;
 
-    if(bind(serverSocket, (sockaddr*)&hint, sizeof(hint)) == SOCKET_ERROR) {
+    if(bind(serverSocket, reinterpret_cast<const sockaddr*>(&hint), sizeof(hint)) != 0) {
         logger.error("Can't bind to port! Is the port open? Cannot continue, quitting.");
         running = false;
+#ifdef WIN32
         closesocket(serverSocket);
         WSACleanup();
-        return;
-    }
-
-    if(listen(serverSocket, SOMAXCONN) == SOCKET_ERROR) {
-        logger.error("Can't listen on socket! Cannot continue, quitting.");
-        running = false;
-        closesocket(serverSocket);
-        WSACleanup();
-        return;
-    }
 #else
-    serverSocket = socket(AF_INET, SOCK_STREAM, 0);
-    if(serverSocket == -1) {
-        logger.error("Can't create socket! Cannot continue, quitting.");
-        running = false;
-        return;
-    }
-
-    sockaddr_in serverAddr{};
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_port = htons(port);
-    serverAddr.sin_addr.s_addr = INADDR_ANY;
-
-    if(bind(serverSocket, (struct sockaddr*)&serverAddr, sizeof(serverAddr)) == -1) {
-        logger.error("Can't bind to port! Is the port open? Cannot continue, quitting.");
-        running = false;
         close(serverSocket);
+#endif
         return;
     }
 
-    if(listen(serverSocket, SOMAXCONN) == -1) {
+    if(listen(serverSocket, SOMAXCONN) != 0) {
         logger.error("Can't listen on socket! Cannot continue, quitting.");
         running = false;
+#ifdef WIN32
+        closesocket(serverSocket);
+        WSACleanup();
+#else
         close(serverSocket);
+#endif
         return;
     }
-#endif
 
-    logger.info("Successfully binded! Server listening on port " + config.get("port", "25565"));
+    logger.info("Successfully binded! Server listening on port " + std::to_string(port));
 }
 
 void MinecraftServer::listenForClients() {
     while(running) {
-#if WIN32
-        SOCKET clientSocket = accept(serverSocket, nullptr, nullptr);
-        if(clientSocket == INVALID_SOCKET && running) {
-            logger.error("Unable to accept incoming connection.");
-            continue;
-        }
-#else
-        sockaddr_in clientAddr{};
+
+        sockaddr_in clientAddr;
+        memset(&clientAddr, 0, sizeof(clientAddr));
         socklen_t clientAddrLen = sizeof(clientAddr);
 
-        int clientSocket = accept(serverSocket, (struct sockaddr*)&clientAddr, &clientAddrLen);
+#ifdef WIN32
+        SOCKET clientSocket = accept(serverSocket, reinterpret_cast<sockaddr*>(&clientAddr), &clientAddrLen);
+#else
+        int clientSocket = accept(serverSocket, reinterpret_cast<sockaddr*>(&clientAddr), &clientAddrLen);
+#endif
+
+#ifdef WIN32
+        if(clientSocket == INVALID_SOCKET && running) {
+#else
         if(clientSocket == -1 && running) {
+#endif
             logger.error("Unable to accept incoming connection.");
             continue;
         }
-#endif
 
-        Player player(clientSocket);
-
-        logger.info("Client connected!");
+        Player* player = new Player(clientSocket);
 
         players.push_back(player);
     }
@@ -192,7 +211,11 @@ void MinecraftServer::stop() {
 
         listenerThread.detach();
 
-        for(Player p : players) p.kick({"Server stopping."});
+        for(Player* p : players) p->kick({"Server stopping."});
+        players.clear();
+
+        if (keys.publicKey) OPENSSL_free((void*) keys.publicKey);
+        if (keys.privateKey) OPENSSL_free((void*) keys.privateKey);
 
 #ifdef WIN32
         closesocket(serverSocket);
@@ -238,12 +261,13 @@ void MinecraftServer::tick() {
     }
 
     players.erase(
-        std::remove_if(players.begin(), players.end(), [](Player& p) {
-            return !p.keepConnection();
+        std::remove_if(players.begin(), players.end(), [](const Player* p) {
+            if (!p->keepConnection()) delete p;
+            return !p->keepConnection();
         }), players.end()
     );
-    for (Player& p : players)
-        p.tick();
+    for (Player* p : players)
+        p->tick();
 }
 
 std::string MinecraftServer::checkConsoleCommand() {

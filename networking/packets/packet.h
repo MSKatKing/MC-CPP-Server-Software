@@ -14,7 +14,7 @@
 
 struct Packet {
     int id;
-    char buffer[4096];
+    char buffer[65536];
     int cursor;
 
     Packet();
@@ -43,9 +43,19 @@ struct Packet {
 
     int ReadVarInt();
 
-    void WriteByteArray(const char* value);
+    template <typename T>
+    void writeArray(const T* value, int length) {
+        std::memcpy(&buffer[cursor], &value, length * sizeof(T));
+        cursor += length * sizeof(T);
+    }
 
-    char* ReadByteArray();
+    template <typename T>
+    T* readArray(int length) {
+        T* value;
+        std::memcpy(&value, &buffer[cursor], length * sizeof(T));
+        cursor += length * sizeof(T);
+        return value;
+    }
 
     int GetSize() const;
 
@@ -59,7 +69,8 @@ struct Packet {
         for(int i = 0; i < p.GetSize(); i++) {
             std::stringstream num;
             num << std::setw(4) << std::setfill('0') << i;
-            os << "@" << num.str() << " -> " << (int) p.Sendable()[i] << "\t(" << p.Sendable()[i] << ")" << std::endl;
+            os << "@" << num.str() << " -> 0x" << std::hex << std::setw(2) << std::setfill('0') << (((int) p.Sendable()[i]) & 0xFF);
+            os << "\t(" << p.Sendable()[i] << ")" << std::endl;
         }
         return os;
     }

@@ -81,13 +81,28 @@ void Player::formatSocket() {
 #endif
 }
 
+#ifdef WIN32
+
+Player::Player(SOCKET socket) : socket(socket) {
+    listenerThread = std::thread(&Player::receivePacket, this);
+    //formatSocket();
+}
+#else
+Player::Player(int socket) : socket(socket) {
+    listenerThread = std::thread(&Player::receivePacket, this);
+    //formatSocket();
+}
+#endif
+
 Player::~Player() {
-    MinecraftServer::get().getLogger().info("Client disconnected.");
+    connected = false;
 #ifdef WIN32
     closesocket(getSocket());
 #else
     close(getSocket());
 #endif
+
+    listenerThread.join();
 }
 
 void Player::sendPacket(const Packet& in) {
@@ -95,54 +110,63 @@ void Player::sendPacket(const Packet& in) {
     send(getSocket(), f.Sendable(), f.GetSize(), 0);
 }
 
-Packet Player::recievePacket() {
-    char buffer[4096];
-    const int bytesRecieved = recv(getSocket(), buffer, sizeof(buffer), 0);
-    if (bytesRecieved < 0) {
-#ifdef WIN32
-        if (WSAGetLastError() == WSAECONNRESET) {
-#else
-        if (errno == ECONNRESET) {
-#endif
-            MinecraftServer::get().getLogger().info("Connection reset.");
-            connected = false;
-            return Packet();
-        } else {
-            return Packet();
-        }
-    }
-    if (bytesRecieved == 0) {
-        kick({ "Invalid packet data recieved!" });
-    }
-
-    Packet in(buffer);
-    return in;
-}
+//Packet Player::recievePacket() {
+//    char buffer[1024];
+//    const int bytesRecieved = recv(getSocket(), buffer, sizeof(buffer), 0);
+//    if (bytesRecieved < 0) {
+//        return Packet();
+//    }
+//    if (bytesRecieved == 0) {
+//        kick({"Invalid packet data recieved!"});
+//        return Packet();
+//    }
+//
+//    Packet in(buffer);
+//
+//    return in;
+//}
 
 void Player::tick() {
     if (!connected) return;
-    Packet p = recievePacket();
-    if (p.GetSize() > 0) {
-        int length = p.ReadVarInt();
-        int id = p.ReadVarInt();
 
-        try {
-            auto& handler = Player::packetHandlers.at(state).at(id);
-            (this->*handler)(p);
-        } catch (const std::out_of_range& exception) {
-            kick({"Invalid player state or packet id!"});
+    while (!packetQueue.empty()) {
+        Packet p = packetQueue.front();
+        packetQueue.pop();
+
+        unsigned char legacy = p.readNumber<unsigned char>();
+
+        if (legacy == 0xFE) {
+            handleLegacyPing(p);
+            return;
+        }
+
+        p.SetCursor(0);
+
+        int length = p.ReadVarInt();
+        while(length > 0) {
+            int id = p.ReadVarInt();
+
+            MinecraftServer::get().getLogger().info(std::to_string(id));
+
+            try {
+                auto& handler = Player::packetHandlers.at(state).at(id);
+                (this->*handler)(p);
+            } catch (const std::out_of_range& exception) {
+                kick({"Invalid player state or packet id!"});
+                break;
+            }
+
+            length = p.ReadVarInt();
         }
     }
     
-    if (state != HANDSHAKE && state != STATUS) {
-        ticksSinceLastKeepAlive++;
-        if (lastKeepAlive != 0) {
-            if (ticksSinceLastKeepAlive > 300) // TODO: replace constant with config variable
-                kick({"Timed out"});
-        } else {
-            if (ticksSinceLastKeepAlive > 200)
-                sendKeepAlive();
-        }
+    ticksSinceLastKeepAlive++;
+    if (lastKeepAlive != 0) {
+        if (ticksSinceLastKeepAlive > 300) // TODO: replace constant with config variable
+            kick({"Timed out"});
+    } else {
+        if (ticksSinceLastKeepAlive > 200)
+            sendKeepAlive();
     }
 }
 
@@ -163,7 +187,8 @@ void Player::kick(TextComponent reason) {
         default:
             return;
     }
-    MinecraftServer::get().getLogger().info("Disconnecting player " + playerName + " for reason: " + reason.asPlainText());
+    if(playerName != "[unknown]") MinecraftServer::get().getLogger().info("Disconnecting player " + playerName + " for reason: " + reason.asPlainText());
+    reason.setColor(COMPONENT_RED);
     out.WriteString(reason.asString());
     sendPacket(out);
 }
@@ -191,7 +216,7 @@ void Player::handleKeepAlive(Packet& in) {
     lastKeepAlive = -1;
 }
 
-bool Player::keepConnection() {
+bool Player::keepConnection() const {
     return connected;
 }
 
@@ -203,16 +228,27 @@ void Player::handleHandshake(Packet& in) {
     int version = in.ReadVarInt();
     std::string addr = in.ReadString();
     unsigned short port = in.readNumber<unsigned short>();
-    int state = in.ReadVarInt();
+    int s = in.ReadVarInt();
 
-    if (state == 1)
+    if (s == 1)
         setState(STATUS);
-    else if (state == 2)
+    else if (s == 2)
         setState(LOGIN);
 }
 
 void Player::handleLegacyPing(Packet& in) {
-    // TODO: handle this bullshit
+    Packet out;
+    out.writeNumber<char>(0xFF);
+    std::string str = "§1\0" + 
+        std::to_string(VERSION_ID) + "\0" + 
+        VERSION_NAME + "\0" + 
+        MinecraftServer::get().getMOTDMessage() + "\0" +
+        std::to_string(MinecraftServer::get().getOnlinePlayers().size()) + "\0" + 
+        std::to_string(MinecraftServer::get().getMaxPlayers());
+    out.writeNumber<short>(str.size());
+    out.writeArray<char>(str.c_str(), str.size());
+    sendPacket(out);
+    kick({""});
 }
 
 /*
@@ -229,7 +265,7 @@ void Player::handleStatusRequest(Packet& in) {
 void Player::handlePingRequest(Packet& in) {
     Packet out;
     out.writeNumber<char>(0x01);
-    out.writeNumber<long>(in.readNumber<long>());
+    out.writeNumber<int64_t>(in.readNumber<int64_t>());
     sendPacket(out);
 }
 
@@ -243,6 +279,26 @@ void Player::handleLoginStart(Packet& in) {
     MinecraftServer::get().getLogger().info("UUID of player " + playerName + " is " + playerUUID.getUUID());
     if (MinecraftServer::get().isOnline()) {
         // send encryption resquest and authorize player
+        Packet out;
+        out.writeNumber<char>(0x01);
+        out.WriteString("");
+        KeyPair keys = MinecraftServer::get().getKeys();
+        MinecraftServer::get().getLogger().info(std::to_string(keys.publicLen));
+        out.WriteVarInt(keys.publicLen);
+        out.writeArray<unsigned char>(keys.publicKey, keys.publicLen);
+        token.resize(4);
+        out.WriteVarInt(token.size());
+        for (int i = 0; i < 4; i++) {
+            char tokenByte = static_cast<char>(rand() & 0xFF);
+            token[i] = tokenByte;
+            out.writeNumber<char>(tokenByte);
+        }
+        sendPacket(out);
+        out.SetCursor(0);
+        out.readNumber<char>();
+        int len = out.ReadVarInt();
+        const unsigned char* key = out.readArray<unsigned char>(len);
+        std::cout << std::hex << key << std::endl;
     } else {
         Packet out;
         out.writeNumber<char>(0x02);
@@ -255,7 +311,7 @@ void Player::handleLoginStart(Packet& in) {
 }
 
 void Player::handleEncryptionResponse(Packet& in) {
-
+    MinecraftServer::get().getLogger().info("response");
 }
 
 void Player::handlePluginResponse(Packet& in) {
@@ -278,7 +334,8 @@ void Player::handleInformation(Packet& in) {
 }
 
 void Player::handlePluginMessage(Packet& in) {
-
+    Identifier id = Identifier::fromString(in.ReadString());
+    if (id.getName() == "brand") brand = in.ReadString();
 }
 
 void Player::handleAcknowledgeConfigFinish(Packet& in) {

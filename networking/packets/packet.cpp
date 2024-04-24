@@ -8,19 +8,19 @@
 #include <cstring>
 
 Packet::Packet() {
-    memset(buffer, 0, sizeof(buffer));
+    std::memset(buffer, 0, sizeof(buffer));
     cursor = 0;
 }
 
 Packet::Packet(char* data) {
-    memcpy(buffer, data, 1024);
+    std::memcpy(buffer, data, 1024);
     cursor = 0;
 }
 
 void Packet::WriteString(const std::string& value) {
     WriteVarInt(value.length());
-    memcpy(&buffer[cursor], value.c_str(), value.length());
-    cursor += value.length() + 1;
+    std::memcpy(&buffer[cursor], value.c_str(), value.length());
+    cursor += value.length();
 }
 
 std::string Packet::ReadString() {
@@ -62,19 +62,6 @@ int Packet::ReadVarInt() {
     return value;
 }
 
-void Packet::WriteByteArray(const char* value) {
-    memcpy(&buffer[cursor], value, sizeof(value));
-    cursor += sizeof(value);
-}
-
-char* Packet::ReadByteArray() {
-    long size = ReadVarInt();
-    char* value;
-    memcpy(&value, &buffer[cursor], size);
-    cursor += size;
-    return value;
-}
-
 int Packet::GetSize() const {
     return cursor;
 }
@@ -89,8 +76,8 @@ const char* Packet::Sendable() const {
 
 const Packet Packet::Finalize() const {
     Packet p;
-    p.WriteVarInt(cursor - 1);
-    memcpy(&p.buffer[p.cursor], buffer, cursor);
-    p.cursor += cursor - 1;
+    p.WriteVarInt(cursor);
+    std::memcpy(&p.buffer[p.cursor], buffer, cursor);
+    p.cursor += cursor;
     return p;
 }

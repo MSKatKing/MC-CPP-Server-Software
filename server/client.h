@@ -5,6 +5,11 @@
 #include <utility>
 #include <functional>
 #include <unordered_map>
+#include <thread>
+#include <vector>
+#include <mutex>
+#include <condition_variable>
+#include <queue>
 #include "../networking/packets/packet.h"
 #include "../util/component/text_components.h"
 #include "../util/identifiers/uuid.h"
@@ -37,29 +42,78 @@ private:
 #else
     int socket;
 #endif
+
+    std::queue<Packet> packetQueue;
+
     std::string playerName = "[unknown]";
     UUID playerUUID = INVALID_UUID;
 
+    std::string brand = "unknown";
+
     ClientState state = HANDSHAKE;
     bool connected = true;
+
+    std::vector<char> token;
 
     long lastKeepAlive = -1;
     int ticksSinceLastKeepAlive = 0;
 
     void sendPacket(const Packet& final);
-    Packet recievePacket();
+    //Packet recievePacket();
 
     void formatSocket();
 
+    void receivePacket() {
+        while (connected) {
+            char buffer[65536] = {0};
+            const int bytesRecieved = static_cast<int>(recv(socket, buffer, sizeof(buffer), 0));
+            if (bytesRecieved <= 0) {
+                connected = false;
+                break;
+            }
+
+            Packet p(buffer);
+
+            if (state == HANDSHAKE || state == STATUS || state == LOGIN) {
+                unsigned char legacy = p.readNumber<unsigned char>();
+
+                if (legacy == 0xFE) {
+                    handleLegacyPing(p);
+                    break;
+                }
+
+                p.SetCursor(0);
+
+                int length = p.ReadVarInt();
+                while (length > 0) {
+                    int id = p.ReadVarInt();
+
+                    try {
+                        auto& handler = Player::packetHandlers.at(state).at(id);
+                        (this->*handler)(p);
+                    } catch (const std::out_of_range& exception) {
+                        kick({"Invalid player state or packet id!"});
+                        break;
+                    }
+
+                    length = p.ReadVarInt();
+                }
+                continue;
+            }
+
+            {
+                packetQueue.push(p);
+            }
+        }
+    }
+
+    std::thread listenerThread;
+
 public:
 #ifdef WIN32
-    explicit Player(SOCKET socket) : socket(socket) {
-        formatSocket();
-    }
+    explicit Player(SOCKET socket);
 #else
-    explicit Player(int socket) : socket(socket) {
-        formatSocket();
-    }
+    explicit Player(int socket);
 #endif
 
     ~Player();
@@ -94,7 +148,7 @@ public:
         state = newState;
     }
 
-    bool keepConnection();
+    bool keepConnection() const;
 
     void tick();
 
