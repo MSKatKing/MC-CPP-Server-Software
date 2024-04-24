@@ -45,8 +45,10 @@ struct Packet {
 
     template <typename T>
     void writeArray(const T* value, int length) {
-        std::memcpy(&buffer[cursor], &value, length * sizeof(T));
-        cursor += length * sizeof(T);
+        for (int i = 0; i < length; i++) {
+            std::memcpy(&buffer[cursor], &value[i], sizeof(T));
+            cursor += sizeof(T);
+        }
     }
 
     template <typename T>

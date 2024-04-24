@@ -294,11 +294,6 @@ void Player::handleLoginStart(Packet& in) {
             out.writeNumber<char>(tokenByte);
         }
         sendPacket(out);
-        out.SetCursor(0);
-        out.readNumber<char>();
-        int len = out.ReadVarInt();
-        const unsigned char* key = out.readArray<unsigned char>(len);
-        std::cout << std::hex << key << std::endl;
     } else {
         Packet out;
         out.writeNumber<char>(0x02);
@@ -320,9 +315,7 @@ void Player::handlePluginResponse(Packet& in) {
 
 void Player::handleLoginAcknowledged(Packet& in) {
     state = CONFIGURATION;
-    Packet out;
-    out.writeNumber<char>(0x02);
-    sendPacket(out);
+    kick({"Not supported! Please tell server admins to check if there's any new updates to the server software!"});
 }
 
 /*

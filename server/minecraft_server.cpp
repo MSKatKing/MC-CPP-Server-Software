@@ -75,10 +75,10 @@ MinecraftServer::MinecraftServer() : running(true), ticks(0), logger("THREAD-MAI
     std::copy(privateKeyDER, privateKeyDER + privateKeyDERLength, keys.privateKey);
     keys.privateLen = privateKeyDERLength;
 
-    for (int i = 0; i < publicKeyDERLength; ++i) {
-        std::cout << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(publicKeyDER[i]) << " ";
+    for (int i = 0; i < keys.publicLen; ++i) {
+        std::cout << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(keys.publicKey[i]) << " ";
     }
-    std::cout << "\n\n" << publicKeyDERLength << std::endl;
+    std::cout << "\n\n" << keys.publicLen << std::endl;
 
     EVP_PKEY_free(pKey);
     RSA_free(rsa);
