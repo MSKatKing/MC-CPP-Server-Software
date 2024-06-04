@@ -34,6 +34,11 @@ struct KeyPair {
     int privateLen;
 };
 
+struct Data {
+    unsigned char* data;
+    int len;
+};
+
 class MinecraftServer {
 public:
     void start();
@@ -80,6 +85,28 @@ public:
 
     KeyPair getKeys() {
         return keys;
+    }
+
+    Data decrypt(const unsigned char* encryptedData, size_t encryptedDataLength) {
+        const unsigned char* c = keys.privateKey;
+        RSA* rsa = d2i_RSAPrivateKey(NULL, &c, keys.privateLen);
+        if (rsa == nullptr) return {nullptr, 0};
+
+        unsigned char decryptedData[65536];
+
+        int decryptedLength = RSA_private_decrypt(encryptedDataLength, encryptedData, decryptedData, rsa, RSA_PKCS1_PADDING);
+        if (decryptedLength == -1) {
+            RSA_free(rsa);
+            return {nullptr, 0};
+        }
+
+        RSA_free(rsa);
+
+        return {decryptedData, decryptedLength};
+    }
+
+    int getCompressionAmount() {
+        return compressionAmount;
     }
 
 private:

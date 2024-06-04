@@ -77,6 +77,7 @@ const char* Packet::Sendable() const {
 const Packet Packet::Finalize() const {
     Packet p;
     p.WriteVarInt(cursor);
+    p.WriteVarInt(id);
     std::memcpy(&p.buffer[p.cursor], buffer, cursor);
     p.cursor += cursor;
     return p;

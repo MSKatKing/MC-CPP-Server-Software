@@ -18,7 +18,7 @@ const JSON TextComponent::asJSON() const {
     if (underlined) out.writeBool("underlined", underlined);
     if (strikethrough) out.writeBool("strikethrough", strikethrough);
     if (obfuscated) out.writeBool("obfuscated", obfuscated);
-    out.writeString("font", font.asString());
+    if (font.asString() != FONT_DEFAULT.asString()) out.writeString("font", font.asString());
     return out;
 }
 

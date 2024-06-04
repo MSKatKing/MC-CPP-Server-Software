@@ -5,6 +5,7 @@
 #ifndef JSON_H
 #define JSON_H
 #include <string>
+#include <sstream>
 #include <unordered_map>
 #include <vector>
 
@@ -12,6 +13,27 @@
 class JSON {
 public:
     JSON() {}
+
+    JSON(const std::string& jsonString) {
+        std::istringstream iss(jsonString);
+        parseJSONStream(iss);
+    }
+
+    int getInt(const std::string& key) const {
+        return std::stoi(data.at(key));
+    }
+
+    bool getBool(const std::string& key) const {
+        return data.at(key) == "true";
+    }
+
+    std::string getString(const std::string& key) const {
+        return data.at(key);
+    }
+
+    bool hasKey(const std::string& key) const {
+        return data.find(key) != data.end();
+    }
 
     void writeInt(const std::string& key, int value) {
         data[key] = std::to_string(value);
@@ -49,6 +71,29 @@ public:
 
 private:
     std::unordered_map<std::string, std::string> data;
+
+    void parseJSONStream(std::istringstream& iss) {
+        std::string token;
+        std::string key;
+        std::string value;
+        char prev = '\0';
+
+        while (std::getline(iss, token, '"')) {
+            if (prev != '\\' && !token.empty()) {
+                if (token == "{" || token == "}" || token == "," || token == ":") {
+
+                } else if (key.empty()) {
+                    key = token;
+                } else if (value.empty()) {
+                    value = token;
+                    data[key] = value;
+                    key.clear();
+                    value.clear();
+                }
+            }
+            prev = token.back();
+        }
+    }
 };
 
 

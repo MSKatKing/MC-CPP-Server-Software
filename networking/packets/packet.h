@@ -6,6 +6,7 @@
 #define PACKET_H
 
 #include <iostream>
+#include <vector>
 #include <cstring>
 #include <string>
 #include <sstream>
@@ -43,6 +44,10 @@ struct Packet {
 
     int ReadVarInt();
 
+    void setID(int newId) {
+        id = newId;
+    }
+
     template <typename T>
     void writeArray(const T* value, int length) {
         for (int i = 0; i < length; i++) {
@@ -52,10 +57,13 @@ struct Packet {
     }
 
     template <typename T>
-    T* readArray(int length) {
-        T* value;
-        std::memcpy(&value, &buffer[cursor], length * sizeof(T));
-        cursor += length * sizeof(T);
+    std::vector<T> readArray(int length) {
+        std::vector<T> value;
+        value.resize(length);
+        for (int i = 0; i < length; i++) {
+            std::memcpy(&value[i], &buffer[cursor], sizeof(T));
+            cursor += sizeof(T);
+        }
         return value;
     }
 

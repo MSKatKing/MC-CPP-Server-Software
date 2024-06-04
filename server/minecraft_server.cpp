@@ -277,7 +277,6 @@ std::string MinecraftServer::checkConsoleCommand() {
     return command;
 }
 
-
 void MinecraftServer::inputThreadFunction() {
     while(running) {
         std::string input;

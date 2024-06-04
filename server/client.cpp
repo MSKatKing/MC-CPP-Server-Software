@@ -13,12 +13,18 @@
 #include <functional>
 #include <unordered_map>
 #include <map>
+#include <openssl/aes.h>
+#include <openssl/sha.h>
+#include <iomanip>
+#include <sstream>
 #ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #else
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <sys/types.h>
+#include <netdb.h>
 #include <unistd.h>
 #include <fcntl.h>
 #endif
@@ -81,14 +87,62 @@ void Player::formatSocket() {
 #endif
 }
 
-#ifdef WIN32
+int Player::encrypt(const char* input, size_t length, unsigned char* output) {
+    AES_KEY aesKey;
+    if (AES_set_encrypt_key(reinterpret_cast<const unsigned char*>(sharedSecret.data()), sharedSecret.size() * 8, &aesKey) != 0) {
+        return -1;
+    }
 
-Player::Player(SOCKET socket) : socket(socket) {
+    AES_cfb128_encrypt(reinterpret_cast<const unsigned char*>(input), output, length, &aesKey, reinterpret_cast<unsigned char*>(const_cast<char*>(sharedSecret.data())), nullptr, AES_ENCRYPT);
+
+    return length;
+}
+
+std::string Player::calculateMinecraftSHA1() {
+    // Initialize SHA1 context
+    SHA_CTX sha1;
+    SHA1_Init(&sha1);
+    std::string serverId;
+
+    // Update context with ASCII encoding of server id
+    SHA1_Update(&sha1, serverId.c_str(), serverId.length());
+
+    // Update context with shared secret
+    SHA1_Update(&sha1, sharedSecret.c_str(), sharedSecret.length());
+
+    KeyPair keys = MinecraftServer::get().getKeys();
+
+    // Update context with server's encoded public key
+    SHA1_Update(&sha1, keys.publicKey, keys.publicLen);
+
+    // Finalize SHA1 hash
+    unsigned char digest[SHA_DIGEST_LENGTH];
+    SHA1_Final(digest, &sha1);
+
+    // Convert digest to hexadecimal string
+    std::stringstream ss;
+    for (int i = 0; i < SHA_DIGEST_LENGTH; ++i) {
+        ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(digest[i]);
+    }
+
+    std::string hash = ss.str();
+
+    // Handle Minecraft's non-standard hexadecimal representation
+    bool negative = (digest[0] & 0x80) != 0;
+    if (negative) {
+        hash.insert(0, "-");
+    }
+
+    return hash;
+}
+
+#ifdef WIN32
+Player::Player(SOCKET socket) : playerSocket(socket), encryptionEnabled(false) {
     listenerThread = std::thread(&Player::receivePacket, this);
     //formatSocket();
 }
 #else
-Player::Player(int socket) : socket(socket) {
+Player::Player(int socket) : playerSocket(socket), encryptionEnabled(false) {
     listenerThread = std::thread(&Player::receivePacket, this);
     //formatSocket();
 }
@@ -106,7 +160,18 @@ Player::~Player() {
 }
 
 void Player::sendPacket(const Packet& in) {
-    Packet f = in.Finalize();
+    Packet f;
+    if (encryptionEnabled) {
+        unsigned char data[in.GetSize()];
+        int size = encrypt(in.buffer, in.GetSize(), data);
+        if (size == -1) {
+            kick({"Error encrypting data!"});
+            return;
+        }
+        f.WriteVarInt(size);
+        f.WriteVarInt(in.id);
+        f.writeArray<unsigned char>(data, size);
+    } else f = in.Finalize();
     send(getSocket(), f.Sendable(), f.GetSize(), 0);
 }
 
@@ -238,7 +303,7 @@ void Player::handleHandshake(Packet& in) {
 
 void Player::handleLegacyPing(Packet& in) {
     Packet out;
-    out.writeNumber<char>(0xFF);
+    out.setID(0xFF);
     std::string str = "§1\0" + 
         std::to_string(VERSION_ID) + "\0" + 
         VERSION_NAME + "\0" + 
@@ -257,14 +322,14 @@ void Player::handleLegacyPing(Packet& in) {
 
 void Player::handleStatusRequest(Packet& in) {
     Packet out;
-    out.writeNumber<char>(0x00);
+    out.setID(0x00);
     out.WriteString(MinecraftServer::get().generateMOTD().asString());
     sendPacket(out);
 }
 
 void Player::handlePingRequest(Packet& in) {
     Packet out;
-    out.writeNumber<char>(0x01);
+    out.setID(0x01);
     out.writeNumber<int64_t>(in.readNumber<int64_t>());
     sendPacket(out);
 }
@@ -280,7 +345,7 @@ void Player::handleLoginStart(Packet& in) {
     if (MinecraftServer::get().isOnline()) {
         // send encryption resquest and authorize player
         Packet out;
-        out.writeNumber<char>(0x01);
+        out.setID(0x01);
         out.WriteString("");
         KeyPair keys = MinecraftServer::get().getKeys();
         MinecraftServer::get().getLogger().info(std::to_string(keys.publicLen));
@@ -289,14 +354,14 @@ void Player::handleLoginStart(Packet& in) {
         token.resize(4);
         out.WriteVarInt(token.size());
         for (int i = 0; i < 4; i++) {
-            char tokenByte = static_cast<char>(rand() & 0xFF);
+            unsigned char tokenByte = static_cast<unsigned char>(rand() & 0xFF);
             token[i] = tokenByte;
-            out.writeNumber<char>(tokenByte);
+            out.writeNumber<unsigned char>(tokenByte);
         }
         sendPacket(out);
     } else {
         Packet out;
-        out.writeNumber<char>(0x02);
+        out.setID(0x02);
         out.writeNumber<uint64_t>(playerUUID.getMostSigBits());
         out.writeNumber<uint64_t>(playerUUID.getLeastSigBits());
         out.WriteString(playerName);
@@ -307,6 +372,44 @@ void Player::handleLoginStart(Packet& in) {
 
 void Player::handleEncryptionResponse(Packet& in) {
     MinecraftServer::get().getLogger().info("response");
+    int sharedSecretLength = in.ReadVarInt();
+    std::vector<unsigned char> data = in.readArray<unsigned char>(sharedSecretLength);
+    Data decrypt = MinecraftServer::get().decrypt(data.data(), sharedSecretLength);
+    unsigned char* sharedSecretBytes = decrypt.data;
+    sharedSecret.resize(sharedSecretLength);
+    std::memcpy(sharedSecret.data(), sharedSecretBytes, sharedSecretLength);
+    int tokenLength = in.ReadVarInt();
+    std::vector<unsigned char> readToken = in.readArray<unsigned char>(tokenLength);
+    Data decryptToken = MinecraftServer::get().decrypt(readToken.data(), tokenLength);
+    for (int i = 0; i < token.size(); i++) {
+        if (token[i] != decryptToken.data[i]) {
+            kick({"Validation token is invalid!"});
+            return;
+        }
+    }
+
+    /*
+        need to send shit to mojang to confirm that the player can connect, also need to collect player properties from mojang servers
+        look more into it w/ chatgpt and wiki.vg, for now assume that everything is ok and immediately send login finish
+    */
+    std::cout << getPlayerDataFromMojang().asString() << std::endl;
+
+    if (MinecraftServer::get().getCompressionAmount() > 0) {
+        Packet out;
+        out.setID(0x03);
+        out.WriteVarInt(MinecraftServer::get().getCompressionAmount());
+        sendPacket(out);
+    }
+
+    Packet out;
+    out.setID(0x02);
+    out.writeNumber<uint64_t>(playerUUID.getMostSigBits());
+    out.writeNumber<uint64_t>(playerUUID.getLeastSigBits());
+    out.WriteString(playerName);
+    out.WriteVarInt(0);
+    sendPacket(out);
+
+    encryptionEnabled = true;
 }
 
 void Player::handlePluginResponse(Packet& in) {

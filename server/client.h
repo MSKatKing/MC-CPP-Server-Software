@@ -14,11 +14,16 @@
 #include "../util/component/text_components.h"
 #include "../util/identifiers/uuid.h"
 #include "../util/identifiers/indentifier.h"
+#include <openssl/sha.h>
+#include <iomanip>
+#include <sstream>
 #ifdef WIN32
 #include <winsock2.h>
 #else
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <netdb.h>
+#include <unistd.h>
 #endif
 
 class Player;
@@ -35,12 +40,18 @@ enum ClientState {
     PLAY
 };
 
+#ifdef WIN32
+#define close closesocket
+#else
+#define SOCKET int
+#endif
+
 class Player {
 private:
 #ifdef WIN32
-    SOCKET socket;
+    SOCKET playerSocket;
 #else
-    int socket;
+    int playerSocket;
 #endif
 
     std::queue<Packet> packetQueue;
@@ -53,7 +64,7 @@ private:
     ClientState state = HANDSHAKE;
     bool connected = true;
 
-    std::vector<char> token;
+    std::vector<unsigned char> token;
 
     long lastKeepAlive = -1;
     int ticksSinceLastKeepAlive = 0;
@@ -66,7 +77,7 @@ private:
     void receivePacket() {
         while (connected) {
             char buffer[65536] = {0};
-            const int bytesRecieved = static_cast<int>(recv(socket, buffer, sizeof(buffer), 0));
+            const int bytesRecieved = static_cast<int>(recv(playerSocket, buffer, sizeof(buffer), 0));
             if (bytesRecieved <= 0) {
                 connected = false;
                 break;
@@ -93,6 +104,8 @@ private:
                         (this->*handler)(p);
                     } catch (const std::out_of_range& exception) {
                         kick({"Invalid player state or packet id!"});
+                        std::cout << state << std::endl;
+                        std::cout << id << std::endl;
                         break;
                     }
 
@@ -109,6 +122,60 @@ private:
 
     std::thread listenerThread;
 
+    bool encryptionEnabled;
+    std::string sharedSecret;
+
+    int encrypt(const char* input, size_t length, unsigned char* output);
+    int decrypt(const char* input, size_t length, unsigned char* output);
+
+    JSON getPlayerDataFromMojang() {
+        std::string request = "GET /session/minecraft/hasJoined?username=" + playerName + "&serverId=" + calculateMinecraftSHA1() + " HTTP/1.1\r\n"
+            "Host: sessionserver.mojang.com\r\n"
+            "Connection: close\r\n\r\n";
+
+        struct addrinfo hints, * res;
+        memset(&hints, 0, sizeof(hints));
+        hints.ai_family = AF_INET;
+        hints.ai_socktype = SOCK_STREAM;
+
+        int status = getaddrinfo("sessionserver.mojang.com", "80", &hints, &res);
+        if (status != 0) return {};
+
+#ifdef WIN32
+        SOCKET s = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+#else
+        int s = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+#endif
+        if (s < 0) return {};
+
+        if (connect(s, res->ai_addr, res->ai_addrlen) < 0) return {};
+        if (send(s, request.c_str(), request.size(), 0) < 0) {
+            close(s);
+            return {};
+        }
+
+        char response_buffer[4096];
+        size_t bytes_received;
+        std::string response_data;
+
+        while ((bytes_received = recv(s, response_buffer, sizeof(response_buffer), 0)) > 0) {
+            response_data.append(response_buffer, bytes_received);
+        }
+
+        if (bytes_received < 0) {
+            close(s);
+            return {};
+        }
+
+        close(playerSocket);
+        freeaddrinfo(res);
+
+        return {response_data};
+    }
+
+    std::string calculateMinecraftSHA1();
+
+
 public:
 #ifdef WIN32
     explicit Player(SOCKET socket);
@@ -120,11 +187,11 @@ public:
 
 #ifdef WIN32
     SOCKET getSocket() const {
-        return socket;
+        return playerSocket;
     }
 #else
     int getSocket() const {
-        return socket;
+        return playerSocket;
     }
 #endif
 
